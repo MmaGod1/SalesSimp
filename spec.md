@@ -57,7 +57,8 @@ SalesSimp/
 
 - `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`: sandbox credentials from the PayPal developer dashboard.
 - `GROQ_API_KEY`: from the Groq console.
-- `.env.local` is listed in `.gitignore`. `.env.example` contains the three names with empty values.
+- `GROQ_UNDERSTAND_MODEL`, `GROQ_EXPLAIN_MODEL`: optional server-only model overrides; both default to `openai/gpt-oss-20b`.
+- `.env.local` is listed in `.gitignore`. `.env.example` lists these variables with empty values.
 - None of these use the `NEXT_PUBLIC_` prefix, so they never reach the browser.
 
 ## How the data flows
@@ -74,13 +75,13 @@ SalesSimp/
 
 Two small Groq calls, both from `/api/ask`, and neither one calculates anything.
 
-1. **Understand the question.** Groq is given the typed question and the list of allowed question types, and must return only JSON: the question type, the period and the item, if any. `questions.ts` validates that JSON. Unknown types, periods outside the data and item names that do not exist all become an "unsupported" reply.
+1. **Understand the question.** Groq is given the typed question, the list of allowed question types, real item names and available months, plus up to the last three question texts and their resolved intents. It receives no sales data. It must return only JSON, including whether the message refers to the previous intent. Follow-ups merge changed fields into that intent in code and pass through the same validator. Unresolvable follow-ups receive a clarification prompt.
 2. **Explain the result.** Code calculates the answer, then Groq is given only the finished numbers and asked to write a few plain sentences.
 3. **Number check.** Every number in the explanation must appear in the numbers Groq was given. If any does not, or if Groq fails or times out, the app uses the template sentences from `story.ts` instead. The seller always gets a correct answer.
 
-Allowed question types: compare two periods, best or slowest month or week, how one item is doing, totals.
+Allowed question types: compare two periods, best or slowest month or week, how one item is doing, totals, and `what_changed`. The latter compares a completed month with the previous month and reports the largest item changes; it never claims to know why a change happened. Greetings and thanks receive a brief rule-based reply without a model call. Answered questions offer two code-generated follow-ups.
 
-What is sent to Groq: the question, finished totals and item names with their revenue. Never buyer details, transaction ids or raw PayPal responses.
+Call 1 receives the current and recent question texts, their resolved intents, real item names and available months, but no sales records. Call 2 receives only finished results and item names. Neither call receives buyer details, transaction ids or raw PayPal responses.
 
 ## Demo history and live sales
 

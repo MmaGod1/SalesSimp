@@ -5,6 +5,7 @@ import {
   type SalesAnalysis,
 } from "./analysis";
 import type { Sale } from "./types";
+import type { CurrentMonthSummary } from "./sales";
 
 export type StoryNumber = {
   label: string;
@@ -25,10 +26,10 @@ export type SalesStory = {
   sentences: StorySentence[];
 };
 
-function currency(cents: number): string {
+function currency(cents: number, currencyCode: string): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency: currencyCode,
     maximumFractionDigits: 2,
   }).format(cents / 100);
 }
@@ -40,11 +41,18 @@ function periodLabel(range: MonthRange): string {
   return `${formatMonth(range.startMonth)} to ${formatMonth(range.endMonth)}`;
 }
 
-function asNumber(label: string, cents: number): StoryNumber {
-  return { label, value: currency(cents) };
+function asNumber(
+  label: string,
+  cents: number,
+  currencyCode: string,
+): StoryNumber {
+  return { label, value: currency(cents, currencyCode) };
 }
 
-function buildSentences(analysis: SalesAnalysis): StorySentence[] {
+function buildSentences(
+  analysis: SalesAnalysis,
+  currencyCode: string,
+): StorySentence[] {
   const first = analysis.monthTotals[0];
   const last = analysis.monthTotals[analysis.monthTotals.length - 1];
   const includeYear = analysis.startMonth.slice(0, 4) !== analysis.endMonth.slice(0, 4);
@@ -72,11 +80,12 @@ function buildSentences(analysis: SalesAnalysis): StorySentence[] {
           ? `Sales ${overallChange >= 0 ? "rose" : "fell"} over this period.`
           : `Sales ${overallChange >= 0 ? "grew" : "eased"} overall by ${Math.abs(overallPercent)}% from ${monthName(first.month)} to ${monthName(last.month)}.`,
       numbers: [
-        asNumber(monthName(first.month), first.totalCents),
-        asNumber(monthName(last.month), last.totalCents),
+        asNumber(monthName(first.month), first.totalCents, currencyCode),
+        asNumber(monthName(last.month), last.totalCents, currencyCode),
         asNumber(
           "Change",
           Math.abs(overallChange),
+          currencyCode,
         ),
       ],
       ...(overallPercent === null
@@ -93,7 +102,7 @@ function buildSentences(analysis: SalesAnalysis): StorySentence[] {
         ? `After a dip in ${monthName(dip.endMonth)}, sales picked up again in ${monthName(recovery.endMonth)}.`
         : `Sales dipped between ${monthName(dip.startMonth)} and ${monthName(dip.endMonth)}.`,
       numbers: analysis.monthTotals.map((month) =>
-        asNumber(monthName(month.month), month.totalCents),
+        asNumber(monthName(month.month), month.totalCents, currencyCode),
       ),
     });
   } else {
@@ -102,7 +111,7 @@ function buildSentences(analysis: SalesAnalysis): StorySentence[] {
       tone: "neutral",
       text: "Sales moved steadily across the months in this period.",
       numbers: analysis.monthTotals.map((month) =>
-        asNumber(monthName(month.month), month.totalCents),
+        asNumber(monthName(month.month), month.totalCents, currencyCode),
       ),
     });
   }
@@ -119,10 +128,12 @@ function buildSentences(analysis: SalesAnalysis): StorySentence[] {
         asNumber(
           `Strongest · ${monthName(analysis.bestMonth.month)}`,
           analysis.bestMonth.totalCents,
+          currencyCode,
         ),
         asNumber(
           `Slowest · ${monthName(analysis.slowestMonth.month)}`,
           analysis.slowestMonth.totalCents,
+          currencyCode,
         ),
       ],
     });
@@ -134,7 +145,7 @@ function buildSentences(analysis: SalesAnalysis): StorySentence[] {
       tone: "neutral",
       text: `${analysis.topItems[0].name} brought in the most sales across this period.`,
       numbers: analysis.topItems.map((item) =>
-        asNumber(item.name, item.totalCents),
+        asNumber(item.name, item.totalCents, currencyCode),
       ),
     });
   }
@@ -152,8 +163,8 @@ function buildSentences(analysis: SalesAnalysis): StorySentence[] {
       tone: "up",
       text: `${risingItem.name} rose strongly between ${monthName(first.month)} and ${monthName(last.month)}.`,
       numbers: [
-        asNumber(monthName(first.month), risingItem.firstMonthCents),
-        asNumber(monthName(last.month), risingItem.lastMonthCents),
+        asNumber(monthName(first.month), risingItem.firstMonthCents, currencyCode),
+        asNumber(monthName(last.month), risingItem.lastMonthCents, currencyCode),
         {
           label: "Change",
           value: `+${risingItem.changePercent}%`,
@@ -168,8 +179,8 @@ function buildSentences(analysis: SalesAnalysis): StorySentence[] {
       tone: "down",
       text: `${fadingItem.name} brought in less at the end of the period than at the start.`,
       numbers: [
-        asNumber(monthName(first.month), fadingItem.firstMonthCents),
-        asNumber(monthName(last.month), fadingItem.lastMonthCents),
+        asNumber(monthName(first.month), fadingItem.firstMonthCents, currencyCode),
+        asNumber(monthName(last.month), fadingItem.lastMonthCents, currencyCode),
         {
           label: "Change",
           value: `${fadingItem.changePercent}%`,
@@ -184,34 +195,50 @@ function buildSentences(analysis: SalesAnalysis): StorySentence[] {
 export function createSalesStory(
   sales: Sale[],
   range: MonthRange,
+  currencyCode = sales.find((sale) => sale.status === "COMPLETED")?.currency ?? "USD",
+  currentMonth: CurrentMonthSummary | null = null,
 ): SalesStory {
   const period = periodLabel(range);
-  const analysis = analyzeSales(sales, range);
+  const analysis = analyzeSales(sales, range, currencyCode);
   const populatedMonths = analysis.monthTotals.filter(
     (month) => month.saleCount > 0,
   );
 
+  let message: string | null = null;
+  let sentences: StorySentence[] = [];
+
   if (analysis.saleCount === 0) {
-    return {
-      period,
-      message:
-        "There were no completed sales in this period. Try choosing a wider month range.",
-      sentences: [],
-    };
+    message =
+      "There were no completed sales in this period. Try choosing a wider month range.";
+  } else if (populatedMonths.length < 2) {
+    message =
+      "There is not enough completed-month history for a useful story yet. Try choosing a wider month range.";
+  } else {
+    sentences = buildSentences(analysis, currencyCode);
   }
 
-  if (populatedMonths.length < 2) {
-    return {
-      period,
-      message:
-        "There is not enough completed-month history for a useful story yet. Try choosing a wider month range.",
-      sentences: [],
-    };
+  if (currentMonth && currentMonth.paymentCount > 0) {
+    const monthName = formatMonth(currentMonth.month);
+    const paymentLabel =
+      currentMonth.paymentCount === 1 ? "payment" : "payments";
+    sentences.push({
+      id: "current-month",
+      tone: "neutral",
+      text: `${monthName} so far: ${currency(currentMonth.totalCents, currencyCode)} from ${currentMonth.paymentCount} ${paymentLabel}. These sales are not included in completed-month comparisons.`,
+      numbers: currentMonth.payments.map((payment) => ({
+        label: `${new Intl.DateTimeFormat("en", {
+          month: "short",
+          day: "numeric",
+          timeZone: "UTC",
+        }).format(new Date(payment.date))} · ${payment.itemNames.join(", ") || "Payment"}`,
+        value: currency(payment.amountCents, currencyCode),
+      })),
+    });
   }
 
   return {
     period,
-    message: null,
-    sentences: buildSentences(analysis),
+    message,
+    sentences,
   };
 }

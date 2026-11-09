@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { analyzeSales, getCompletedMonthKeys } from "./analysis";
+import {
+  analyzeSales,
+  formatNaturalPeriod,
+  getCompletedMonthKeys,
+} from "./analysis";
 import { createDemoHistory } from "./demoHistory";
 import { normalizeTransactions } from "./paypal/normalize";
 
@@ -30,6 +34,8 @@ describe("sales analysis", () => {
       16, 16, 16, 16,
     ]);
     expect(analysis.bestMonth?.month).toBe("2026-10");
+    expect(analysis.averagePaymentCents).toBe(7834);
+    expect(analysis.bestMonthSharePercent).toBe(31);
     expect(analysis.slowestMonth?.month).toBe("2026-09");
     expect(analysis.runs).toEqual([
       {
@@ -113,5 +119,21 @@ describe("sales analysis", () => {
 
     expect(analysis.totalCents).toBe(501400);
     expect(analysis.saleCount).toBe(64);
+  });
+
+  it("uses natural period wording and returns no average for an empty period", () => {
+    expect(
+      formatNaturalPeriod({ startMonth: "2026-07", endMonth: "2026-10" }),
+    ).toBe("July to October");
+    expect(
+      formatNaturalPeriod({ startMonth: "2025-11", endMonth: "2026-01" }),
+    ).toBe("November 2025 to January 2026");
+
+    const empty = analyzeSales([], {
+      startMonth: "2026-07",
+      endMonth: "2026-10",
+    });
+    expect(empty.averagePaymentCents).toBeNull();
+    expect(empty.bestMonthSharePercent).toBeNull();
   });
 });

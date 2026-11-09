@@ -30,6 +30,8 @@ describe("createSalesStory", () => {
       .toContain("Ankara dress");
     expect(story.sentences.find((sentence) => sentence.id === "fading-item")?.text)
       .toContain("Silk scarf");
+    expect(story.sentences.find((sentence) => sentence.id === "fading-item")?.numbers.at(-1))
+      .toEqual({ label: "Change", value: "-75%" });
     expect(story.sentences.every((sentence) => sentence.numbers.length > 0))
       .toBe(true);
     expect(story.sentences.join(" ").toLowerCase()).not.toMatch(
@@ -85,5 +87,54 @@ describe("createSalesStory", () => {
 
     expect(story.message).toContain("no completed sales");
     expect(story.sentences).toEqual([]);
+  });
+
+  it("adds current-month payments separately from the completed-month story", () => {
+    const story = createSalesStory(
+      sales,
+      { startMonth: "2026-07", endMonth: "2026-10" },
+      "USD",
+      {
+        month: "2026-11",
+        totalCents: 4500,
+        paymentCount: 1,
+        payments: [
+          {
+            date: "2026-11-02T12:00:00Z",
+            amountCents: 4500,
+            itemNames: ["Ankara dress"],
+          },
+        ],
+      },
+    );
+    const currentMonthSentence = story.sentences.at(-1);
+
+    expect(currentMonthSentence?.id).toBe("current-month");
+    expect(currentMonthSentence?.text).toContain(
+      "November 2026 so far: $45.00 from 1 payment",
+    );
+    expect(currentMonthSentence?.text).toContain(
+      "not included in completed-month comparisons",
+    );
+    expect(currentMonthSentence?.numbers).toEqual([
+      { label: "Nov 2 · Ankara dress", value: "$45.00" },
+    ]);
+  });
+
+  it("does not add a current-month sentence when there are no completed live payments", () => {
+    const story = createSalesStory(
+      sales,
+      { startMonth: "2026-07", endMonth: "2026-10" },
+      "USD",
+      {
+        month: "2026-11",
+        totalCents: 0,
+        paymentCount: 0,
+        payments: [],
+      },
+    );
+
+    expect(story.sentences.some((sentence) => sentence.id === "current-month"))
+      .toBe(false);
   });
 });

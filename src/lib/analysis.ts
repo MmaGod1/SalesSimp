@@ -32,7 +32,9 @@ export type SalesAnalysis = {
   monthTotals: MonthTotal[];
   totalCents: number;
   saleCount: number;
+  averagePaymentCents: number | null;
   bestMonth: MonthTotal | null;
+  bestMonthSharePercent: number | null;
   slowestMonth: MonthTotal | null;
   runs: TrendRun[];
   topItems: ItemTotal[];
@@ -49,7 +51,6 @@ export function getMonthKey(date: Date | string): string {
   if (Number.isNaN(value.getTime())) {
     throw new RangeError("The date is invalid.");
   }
-
   return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
@@ -60,7 +61,6 @@ export function getCompletedMonthKeys(
   if (!Number.isInteger(count) || count < 1) {
     throw new RangeError("Month count must be a positive whole number.");
   }
-
   const lastCompletedMonth = Date.UTC(
     today.getUTCFullYear(),
     today.getUTCMonth() - 1,
@@ -88,12 +88,30 @@ export function formatMonth(month: string): string {
   ) {
     throw new RangeError("Month must be in YYYY-MM format.");
   }
-
   return new Intl.DateTimeFormat("en", {
     month: "long",
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(Date.UTC(year, monthNumber - 1, 1)));
+}
+
+export function formatNaturalPeriod(range: MonthRange): string {
+  const [startYear, startMonth] = range.startMonth.split("-").map(Number);
+  const [endYear, endMonth] = range.endMonth.split("-").map(Number);
+  const start = new Intl.DateTimeFormat("en", {
+    month: "long",
+    ...(startYear !== endYear ? { year: "numeric" } : {}),
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(startYear, startMonth - 1, 1)));
+  if (range.startMonth === range.endMonth) {
+    return start;
+  }
+  const end = new Intl.DateTimeFormat("en", {
+    month: "long",
+    ...(startYear !== endYear ? { year: "numeric" } : {}),
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(endYear, endMonth - 1, 1)));
+  return `${start} to ${end}`;
 }
 
 function monthKeysBetween(startMonth: string, endMonth: string): string[] {
@@ -112,7 +130,6 @@ function monthKeysBetween(startMonth: string, endMonth: string): string[] {
   ) {
     return [];
   }
-
   const result: string[] = [];
   for (
     let cursor = Date.UTC(startYear, startNumber - 1, 1);
@@ -128,17 +145,22 @@ function monthKeysBetween(startMonth: string, endMonth: string): string[] {
   return result;
 }
 
+export function getMonthKeysBetween(
+  startMonth: string,
+  endMonth: string,
+): string[] {
+  return monthKeysBetween(startMonth, endMonth);
+}
+
 function getTrendRuns(monthTotals: MonthTotal[]): TrendRun[] {
   const runs: TrendRun[] = [];
   let startIndex = 0;
   let direction: TrendRun["direction"] | null = null;
-
   for (let index = 1; index < monthTotals.length; index += 1) {
     const difference =
       monthTotals[index].totalCents - monthTotals[index - 1].totalCents;
     const nextDirection =
       difference > 0 ? "rise" : difference < 0 ? "fall" : null;
-
     if (nextDirection !== direction) {
       if (direction) {
         runs.push({
@@ -154,7 +176,6 @@ function getTrendRuns(monthTotals: MonthTotal[]): TrendRun[] {
       direction = nextDirection;
     }
   }
-
   if (direction && monthTotals.length > 1) {
     const lastMonth = monthTotals[monthTotals.length - 1];
     runs.push({
@@ -164,13 +185,13 @@ function getTrendRuns(monthTotals: MonthTotal[]): TrendRun[] {
       changeCents: lastMonth.totalCents - monthTotals[startIndex].totalCents,
     });
   }
-
   return runs;
 }
 
 export function analyzeSales(
   sales: Sale[],
   range: MonthRange,
+  currency = sales.find((sale) => sale.status === "COMPLETED")?.currency ?? "USD",
 ): SalesAnalysis {
   const months = monthKeysBetween(range.startMonth, range.endMonth);
   const monthTotals = months.map((month) => ({
@@ -188,23 +209,20 @@ export function analyzeSales(
   for (const sale of sales) {
     if (
       sale.status !== "COMPLETED" ||
-      sale.currency !== "USD" ||
+      sale.currency !== currency ||
       !Number.isFinite(sale.amount) ||
       sale.amount <= 0
     ) {
       continue;
     }
-
     const index = monthIndex.get(getMonthKey(sale.date));
     if (index === undefined) {
       continue;
     }
-
     const cents = Math.round(sale.amount * 100);
     monthTotals[index].totalCents += cents;
     monthTotals[index].saleCount += 1;
     saleCount += 1;
-
     for (const name of new Set(sale.itemNames)) {
       itemTotals.set(name, (itemTotals.get(name) ?? 0) + cents);
       const monthly = itemMonthlyTotals.get(name) ?? new Map<string, number>();
@@ -220,9 +238,9 @@ export function analyzeSales(
     .map(([name, totalCents]) => ({ name, totalCents }))
     .sort(
       (left, right) =>
-        right.totalCents - left.totalCents || left.name.localeCompare(right.name),
+        right.totalCents - left.totalCents ||
+        left.name.localeCompare(right.name),
     );
-
   const firstMonth = months[0];
   const lastMonth = months[months.length - 1];
   const itemChanges = [...itemMonthlyTotals.entries()]
@@ -247,18 +265,29 @@ export function analyzeSales(
         (left.changePercent ?? Number.NEGATIVE_INFINITY),
     );
   const populatedMonths = monthTotals.filter((month) => month.saleCount > 0);
+  const totalCents = monthTotals.reduce(
+    (sum, month) => sum + month.totalCents,
+    0,
+  );
+  const bestMonth =
+    populatedMonths.length > 0
+      ? populatedMonths.reduce((best, month) =>
+          month.totalCents > best.totalCents ? month : best,
+        )
+      : null;
 
   return {
     startMonth: range.startMonth,
     endMonth: range.endMonth,
     monthTotals,
-    totalCents: monthTotals.reduce((sum, month) => sum + month.totalCents, 0),
+    totalCents,
     saleCount,
-    bestMonth:
-      populatedMonths.length > 0
-        ? populatedMonths.reduce((best, month) =>
-            month.totalCents > best.totalCents ? month : best,
-          )
+    averagePaymentCents:
+      saleCount > 0 ? Math.round(totalCents / saleCount) : null,
+    bestMonth,
+    bestMonthSharePercent:
+      bestMonth && totalCents > 0
+        ? Math.round((bestMonth.totalCents / totalCents) * 100)
         : null,
     slowestMonth:
       populatedMonths.length > 0
@@ -271,3 +300,10 @@ export function analyzeSales(
     itemChanges,
   };
 }
+
+export { computeQuestionAnswer } from "./answerAnalysis";
+export type {
+  AnswerNumber,
+  AnswerSentence,
+  ComputedAnswer,
+} from "./answerAnalysis";

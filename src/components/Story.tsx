@@ -5,6 +5,7 @@ import type { StorySentence } from "@/lib/story";
 type StoryProps = {
   sentences: StorySentence[];
   animationKey: string;
+  idPrefix?: string;
   pulseFirstButton: boolean;
   onPanelOpen: () => void;
 };
@@ -41,6 +42,7 @@ function TrendIcon({ direction }: { direction: "up" | "down" | "neutral" }) {
 export function Story({
   sentences,
   animationKey,
+  idPrefix = "",
   pulseFirstButton,
   onPanelOpen,
 }: StoryProps) {
@@ -49,6 +51,7 @@ export function Story({
       {sentences.map((sentence, index) => (
         <StoryCard
           key={sentence.id}
+          idPrefix={idPrefix}
           onPanelOpen={onPanelOpen}
           pulseButton={pulseFirstButton && index === 0}
           sentence={sentence}
@@ -61,16 +64,18 @@ export function Story({
 
 function StoryCard({
   sentence,
+  idPrefix,
   staggerIndex,
   pulseButton,
   onPanelOpen,
 }: {
   sentence: StorySentence;
+  idPrefix: string;
   staggerIndex: number;
   pulseButton: boolean;
   onPanelOpen: () => void;
 }) {
-  const panelId = `numbers-${sentence.id}`;
+  const panelId = `${idPrefix}numbers-${sentence.id}`;
   const [isOpen, setIsOpen] = useState(false);
   const sentenceStyle = {
     "--stagger-index": staggerIndex,

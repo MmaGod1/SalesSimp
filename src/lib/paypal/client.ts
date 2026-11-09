@@ -1,28 +1,16 @@
 import "server-only";
+import type { PayPalTransaction } from "@/lib/types";
+import {
+  fetchWithRetry,
+  PayPalConnectionError,
+} from "./request";
 
 const PAYPAL_BASE_URL = "https://api-m.sandbox.paypal.com";
-const MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
+const MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1000 - 1;
 const PAGE_SIZE = 100;
 
 type PayPalTokenResponse = {
   access_token?: unknown;
-};
-
-type PayPalTransaction = {
-  transaction_info?: {
-    transaction_initiation_date?: string;
-    transaction_status?: string;
-    transaction_event_code?: string;
-    transaction_amount?: {
-      value?: string;
-      currency_code?: string;
-    };
-  };
-  cart_info?: {
-    item_details?: Array<{
-      item_name?: string;
-    }>;
-  };
 };
 
 type PayPalTransactionSearchResponse = {
@@ -30,14 +18,7 @@ type PayPalTransactionSearchResponse = {
   total_pages?: number;
 };
 
-export type SafePayPalTransaction = {
-  date: string | null;
-  status: string | null;
-  transaction_event_code: string | null;
-  amount: string | null;
-  currency: string | null;
-  itemNames?: string[];
-};
+export type SafePayPalTransaction = PayPalTransaction;
 
 export class PayPalConfigurationError extends Error {
   constructor(message: string) {
@@ -64,6 +45,20 @@ async function readJson<T>(response: Response): Promise<T> {
   }
 }
 
+async function requestPayPal(
+  input: string,
+  init: RequestInit,
+): Promise<Response> {
+  try {
+    return await fetchWithRetry(input, init);
+  } catch (error) {
+    if (error instanceof PayPalConnectionError) {
+      throw new PayPalRequestError(error.message, 502);
+    }
+    throw error;
+  }
+}
+
 export async function getPayPalAccessToken(): Promise<string> {
   const clientId = process.env.PAYPAL_CLIENT_ID;
   const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
@@ -81,7 +76,7 @@ export async function getPayPalAccessToken(): Promise<string> {
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
     "base64",
   );
-  const response = await fetch(`${PAYPAL_BASE_URL}/v1/oauth2/token`, {
+  const response = await requestPayPal(`${PAYPAL_BASE_URL}/v1/oauth2/token`, {
     method: "POST",
     headers: {
       Authorization: `Basic ${credentials}`,
@@ -120,16 +115,24 @@ function toValidDate(value: string | Date): Date {
 function toSafeTransaction(transaction: PayPalTransaction): SafePayPalTransaction {
   const info = transaction.transaction_info;
   const itemNames = transaction.cart_info?.item_details
-    ?.map((item) => item.item_name)
-    .filter((name): name is string => typeof name === "string" && name.length > 0);
+    ?.map((item) => item.item_name?.trim())
+    .filter((name): name is string => Boolean(name));
 
   return {
-    date: info?.transaction_initiation_date ?? null,
-    status: info?.transaction_status ?? null,
-    transaction_event_code: info?.transaction_event_code ?? null,
-    amount: info?.transaction_amount?.value ?? null,
-    currency: info?.transaction_amount?.currency_code ?? null,
-    ...(itemNames && itemNames.length > 0 ? { itemNames } : {}),
+    transaction_info: {
+      transaction_initiation_date: info?.transaction_initiation_date,
+      transaction_status: info?.transaction_status,
+      transaction_event_code: info?.transaction_event_code,
+      transaction_amount: info?.transaction_amount
+        ? {
+            value: info.transaction_amount.value,
+            currency_code: info.transaction_amount.currency_code,
+          }
+        : undefined,
+    },
+    cart_info: {
+      item_details: itemNames?.map((item_name) => ({ item_name })),
+    },
   };
 }
 
@@ -146,7 +149,7 @@ async function fetchTransactionPage(
     page_size: String(PAGE_SIZE),
     page: String(page),
   });
-  const response = await fetch(
+  const response = await requestPayPal(
     `${PAYPAL_BASE_URL}/v1/reporting/transactions?${query}`,
     {
       headers: {
@@ -196,11 +199,11 @@ export async function fetchPayPalTransactions(
         windowEnd,
         page,
       );
+      const transactionDetails = payload.transaction_details ?? [];
       if (
-        !Array.isArray(payload.transaction_details) ||
-        !Number.isInteger(payload.total_pages) ||
-        payload.total_pages === undefined ||
-        payload.total_pages < 0
+        !Array.isArray(transactionDetails) ||
+        (payload.total_pages !== undefined &&
+          (!Number.isInteger(payload.total_pages) || payload.total_pages < 0))
       ) {
         throw new PayPalRequestError(
           "PayPal returned an invalid transaction search response.",
@@ -209,9 +212,16 @@ export async function fetchPayPalTransactions(
       }
 
       totalPages = payload.total_pages;
-      transactions.push(...payload.transaction_details.map(toSafeTransaction));
+      transactions.push(...transactionDetails.map(toSafeTransaction));
+      const hasMorePages =
+        totalPages === undefined
+          ? transactionDetails.length === PAGE_SIZE
+          : page < totalPages;
+      if (!hasMorePages) {
+        break;
+      }
       page += 1;
-    } while (page <= (totalPages ?? 0));
+    } while (true);
 
     windowStart = new Date(windowEnd.getTime() + 1);
   }

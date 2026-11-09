@@ -35,7 +35,10 @@ A friendly header with the SalesSimp name. Under it, a short written story of he
 
 - She types something like "How did my dresses do compared to last quarter?" or taps an example question.
 - A short "Looking at your sales..." message appears, then the answer arrives as a few plain sentences in the same style as the story, with the same "show numbers" tap and the period named at the top.
-- The app answers only these kinds of questions: comparing two periods, the best or slowest month or week, how one item is doing, and totals.
+- The app answers only these kinds of questions: comparing two periods, the best or slowest month or week, how one item is doing, totals, and what changed between adjacent months.
+- The seller can ask natural follow-ups such as "and September?" or "what about this item?" SalesSimp reuses only the recent validated question intent; it never stores the conversation outside React state.
+- "What changed?" compares completed sales with the previous month and describes the items that rose or fell. It reports what changed, never why.
+- Greetings and thanks receive a brief friendly reply without an AI call. Answers suggest two relevant next questions.
 - Anything else, such as "Should I hire someone?" or "How much stock do I have?", gets a kind reply that says what it can answer, with example questions to tap. It never guesses.
 - Her question also updates the filter chips to match, so typing and tapping feel like one thing.
 

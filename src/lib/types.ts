@@ -1,3 +1,5 @@
+import type { ResolvedIntent } from "./questions";
+
 export type Sale = {
   id: string;
   date: string;
@@ -5,6 +7,37 @@ export type Sale = {
   currency: string;
   status: string;
   itemNames: string[];
+  source?: "demo" | "live";
+};
+
+export type PublicSale = Omit<Sale, "id"> & {
+  source: "demo" | "live";
+};
+
+export type SalesApiResponse = {
+  sales: PublicSale[];
+  leftOutCount: number;
+  currencyLeftOutCount: number;
+  transactionsRead: number;
+  liveSalesCount: number;
+  fetchedAt: string;
+};
+
+export type AskApiResponse = {
+  status: "answered" | "unsupported" | "clarify" | "error";
+  periodLabel: string;
+  sentences: Array<{
+    id: string;
+    tone: "up" | "down" | "neutral";
+    text: string;
+    numbers: Array<{ label: string; value: string }>;
+  }>;
+  resolvedPeriod: { startMonth: string; endMonth: string } | null;
+  source: "ai" | "template";
+  message?: string;
+  suggestedQuestions?: string[];
+  followUpQuestions?: string[];
+  resolvedIntent?: ResolvedIntent | null;
 };
 
 export type PayPalTransaction = {
