@@ -510,10 +510,19 @@ function itemTrend(
     previous.cents === 0
       ? "not available"
       : `${Math.abs(Math.round((latestChange / previous.cents) * 100))}%`;
+  const latestMonth = formatNaturalPeriod(monthRange(latest.month));
+  const previousMonth = formatNaturalPeriod(monthRange(previous.month));
   const latestDescription =
-    previous.cents === 0
-      ? `${formatNaturalPeriod(monthRange(latest.month))} ${latestChange === 0 ? "stayed the same" : `${latestChange > 0 ? "rose" : "fell"} by ${formatCurrency(Math.abs(latestChange), currency)}`} from ${formatNaturalPeriod(monthRange(previous.month))}.`
-      : `${formatNaturalPeriod(monthRange(latest.month))} ${latestChange === 0 ? "stayed the same" : `${latestChange > 0 ? "rose" : "fell"} by ${formatCurrency(Math.abs(latestChange), currency)} (${latestPercent})`} from ${formatNaturalPeriod(monthRange(previous.month))}.`;
+    latestChange === 0
+      ? `${latestMonth} stayed the same as ${previousMonth}.`
+      : `${latestMonth} ${latestChange > 0 ? "rose" : "fell"} by ${formatCurrency(
+          Math.abs(latestChange),
+          currency,
+        )}${previous.cents === 0 ? "" : ` (${latestPercent})`} from ${previousMonth}${
+          latestChange > 0
+            ? `, moving from ${formatCurrency(previous.cents, currency)} to ${formatCurrency(latest.cents, currency)}`
+            : ""
+        }.`;
   const sentences: AnswerSentence[] = [
     {
       id: "item-overall",

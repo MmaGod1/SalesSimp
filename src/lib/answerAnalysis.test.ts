@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeQuestionAnswer } from "./analysis";
+import { explanationHasOnlyProvidedNumbers } from "./groq-core";
 import type { ResolvedQuestion } from "./questions";
 import type { Sale } from "./types";
 
@@ -281,6 +282,70 @@ describe("question answer calculations", () => {
     expect(result?.sentences[2].text).toContain("$540.00");
     expect(result?.sentences[3].text).toContain("rose by $405.00 (300%)");
     expect(result?.sentences.every(({ numbers }) => numbers.length > 0)).toBe(true);
+  });
+
+  it.each([
+    {
+      label: "rise",
+      amounts: [208, 312],
+      sentence:
+        "October rose by $104.00 (50%) from September, moving from $208.00 to $312.00.",
+      figures: ["$208.00", "$312.00", "$104.00", "50%"],
+    },
+    {
+      label: "fall",
+      amounts: [312, 208],
+      sentence: "October fell by $104.00 (33%) from September.",
+      figures: ["$312.00", "$208.00", "$104.00", "33%"],
+    },
+    {
+      label: "no change",
+      amounts: [208, 208],
+      sentence: "October stayed the same as September.",
+      figures: ["$208.00", "$208.00", "$0.00", "0%"],
+    },
+  ])("formats the latest-month $label naturally with checked figures", ({
+    amounts,
+    sentence,
+    figures,
+  }) => {
+    const trendSales: Sale[] = [
+      {
+        id: "september",
+        date: "2026-09-12T12:00:00Z",
+        amount: amounts[0]!,
+        currency: "USD",
+        status: "COMPLETED",
+        itemNames: ["Ankara dress"],
+      },
+      {
+        id: "october",
+        date: "2026-10-12T12:00:00Z",
+        amount: amounts[1]!,
+        currency: "USD",
+        status: "COMPLETED",
+        itemNames: ["Ankara dress"],
+      },
+    ];
+    const result = computeQuestionAnswer(
+      trendSales,
+      question("item_trend", {
+        question: "How did Ankara dress do?",
+        item: "Ankara dress",
+        range: { startMonth: "2026-09", endMonth: "2026-10" },
+        periodLabel: "September to October",
+      }),
+    );
+    const latestSentence = result?.sentences[3];
+
+    expect(latestSentence?.text).toBe(sentence);
+    expect(latestSentence?.numbers.map(({ value }) => value)).toEqual(figures);
+    expect(result && latestSentence).toBeTruthy();
+    expect(
+      result &&
+        latestSentence &&
+        explanationHasOnlyProvidedNumbers(latestSentence.text, result),
+    ).toBe(true);
   });
 
   it("reports the biggest item changes without claiming why they happened", () => {

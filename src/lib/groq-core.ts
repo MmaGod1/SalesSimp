@@ -684,6 +684,7 @@ function explainSystemPrompt(): string {
     "Phrase dates naturally using naturalPeriod; leave out the year when the period is within one year.",
     "Do not calculate, change, round, or invent numbers.",
     "For changes, say 'rose by' or 'fell by' with an unsigned amount and percent; for no change, say 'stayed the same'. Never say 'changed by' or use a negative percent.",
+    "For an item's latest-month change, put facts in this order: '[Latest month] rose by [amount] ([percent]) from [previous month], moving from [previous amount] to [latest amount].' For a fall, say '[Latest month] fell by [amount] ([percent]) from [previous month].' For no change, say '[Latest month] stayed the same as [previous month].' Use only the provided values.",
     "Capitalize the first letter of every sentence. For a weekly answer, use 'Your best week was [Monday] to [Sunday], with [amount] in completed sales' and do not prefix or repeat the requested period.",
     "For best or slowest month answers, do not prefix the sentence with the entire requested period; the period is already shown in the answer header.",
     "Use only the exact numeric figures provided, including signs, decimals and percentages. Do not spell out numbers.",

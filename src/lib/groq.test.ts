@@ -132,6 +132,9 @@ describe("Groq question and explanation pipeline", () => {
     );
     expect(secondRequest.messages[0].content).toContain("rose by");
     expect(secondRequest.messages[0].content).toContain("Capitalize the first letter");
+    expect(secondRequest.messages[0].content).toContain(
+      "For an item's latest-month change, put facts in this order",
+    );
   });
 
   it("rejects invented and altered figures and falls back to trusted templates", async () => {
